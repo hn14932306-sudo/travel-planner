@@ -227,9 +227,31 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
               </div>
             )}
             <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
-              <PlaceInput placeholder="設定住宿..." icon="🏨" value={currentData.stay?.name || ""} 
-                onChange={(v:string) => { const ni = {...itinerary, [currentDay]: {...currentData, stay: {...currentData.stay, name: v}}}; setItinerary(ni); save(ni, startDate); }} 
-                onSelect={(p:any) => { const ni = {...itinerary, [currentDay]: {...currentData, stay: {name: p.name, lat: p.geometry.location.lat(), lng: p.geometry.location.lng()}}}; setItinerary(ni); save(ni, startDate); }} 
+              <PlaceInput 
+                placeholder="設定住宿..." 
+                icon="🏨" 
+                value={currentData.stay?.name || ""} 
+                onChange={(v: string) => {
+                  // 🟢 關鍵：如果輸入框清空，直接把 stay 物件重設，不保留舊的 lat/lng
+                  const newStay = v.trim() === "" ? { name: "" } : { ...currentData.stay, name: v };
+                  const ni = {
+                    ...itinerary,
+                    [currentDay]: { ...currentData, stay: newStay }
+                  };
+                  setItinerary(ni);
+                  save(ni, startDate);
+                }} 
+                onSelect={(p: any) => {
+                  const ni = {
+                    ...itinerary,
+                    [currentDay]: {
+                      ...currentData,
+                      stay: { name: p.name, lat: p.geometry.location.lat(), lng: p.geometry.location.lng() }
+                    }
+                  };
+                  setItinerary(ni);
+                  save(ni, startDate);
+                }} 
               />
             </div>
           </div>
@@ -300,22 +322,34 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
         <Map mapId="MAIN_MAP" defaultCenter={{ lat: 25.03, lng: 121.56 }} defaultZoom={13} disableDefaultUI onClick={(e: any) => {
           if (!e.detail.placeId) return;
           const pl = new (window as any).google.maps.places.PlacesService(map);
-          pl.getDetails({ placeId: e.detail.placeId, fields: ['name', 'geometry', 'formatted_address', 'photos', 'rating', 'place_id', 'types'] }, (p: any, s: any) => {
-            if (s === 'OK') { setPendingPlace(p); setInfoWindowPos(e.detail.latLng); }
+          pl.getDetails({ 
+            placeId: e.detail.placeId, 
+            fields: ['name', 'geometry', 'formatted_address', 'photos', 'rating', 'place_id', 'types'] 
+          }, (p: any, s: any) => {
+            if (s === 'OK') { 
+              setPendingPlace(p); 
+              setInfoWindowPos(e.detail.latLng); 
+            }
           });
         }}>
           <DirectionsManager spots={currentData.spots} stay={currentData.stay} airport={currentData.airport} isFirstDay={isFirstDay} isLastDay={isLastDay} travelMode={travelMode} onLegsUpdate={setLegs} />
           {currentData.spots.map((s, idx) => (
-            <AdvancedMarker key={s.id} position={{ lat: s.lat, lng: s.lng }} onClick={() => focusOnSpot(s)}>
-              <div className="bg-slate-800 text-white w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-lg">{idx + 1}</div>
-            </AdvancedMarker>
+            s.lat && s.name && (
+              <AdvancedMarker key={s.id} position={{ lat: s.lat, lng: s.lng }} onClick={() => focusOnSpot(s)}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-lg transition-colors ${
+                  s.isRestaurant ? 'bg-orange-500 text-white' : 'bg-slate-800 text-white'
+                }`}>
+                  {s.isRestaurant ? '🍴' : idx + 1}
+                </div>
+              </AdvancedMarker>
+            )
           ))}
-          {currentData.stay?.lat && (
+          {currentData.stay?.lat && currentData.stay?.name && (
             <AdvancedMarker position={{ lat: currentData.stay.lat, lng: currentData.stay.lng }} onClick={() => focusOnSpot(currentData.stay)}>
               <div className="bg-blue-600 text-white px-2 py-1 rounded shadow-xl text-[10px] font-black border border-white">🏨 {currentData.stay.name}</div>
             </AdvancedMarker>
           )}
-          {currentData.airport?.lat && (isFirstDay || isLastDay) && (
+          {currentData.airport?.lat && currentData.airport?.name && (isFirstDay || isLastDay) && (
             <AdvancedMarker position={{ lat: currentData.airport.lat, lng: currentData.airport.lng }} onClick={() => focusOnSpot(currentData.airport)}>
               <div className="bg-amber-500 text-white px-2 py-1 rounded shadow-xl text-[10px] font-black border border-white">✈️ {currentData.airport.name}</div>
             </AdvancedMarker>
@@ -328,23 +362,61 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
                   <h4 className="font-bold text-sm mb-1">{pendingPlace.name}</h4>
                   {!isReadOnly ? (
                     <div className="flex flex-col gap-1 mt-2">
-                      {/* 按鈕 1：加入為景點 */}
-                      <button onClick={() => {
-                        const ni = {...itinerary, [currentDay]: {...currentData, spots: [...currentData.spots, { id: Date.now().toString(), name: pendingPlace.name, address: pendingPlace.formatted_address, lat: infoWindowPos.lat, lng: infoWindowPos.lng, place_id: pendingPlace.place_id }]}};
-                        setItinerary(ni); 
-                        save(ni, startDate); // 🟢 同步到 Firebase
-                        setInfoWindowPos(null);
-                      }} className="bg-slate-800 text-white text-[10px] py-2 rounded font-bold">+ 加入行程</button>
+                      {/* 🟢 統一的加入函數 */}
+                      {(() => {
+                        const isRest = pendingPlace.types?.includes('restaurant') || 
+                                      pendingPlace.types?.includes('food') || 
+                                      pendingPlace.types?.includes('cafe');
 
-                      {/* 🟢 補回按鈕 2：設為住宿 (當 Google 分類為 lodging 時顯示) */}
-                      {pendingPlace.types?.includes('lodging') && (
-                        <button onClick={() => {
-                          const ni = {...itinerary, [currentDay]: {...currentData, stay: { name: pendingPlace.name, lat: infoWindowPos.lat, lng: infoWindowPos.lng }}};
-                          setItinerary(ni); 
-                          save(ni, startDate); // 🟢 同步到 Firebase
+                        const addSpot = (mealType: 'lunch' | 'dinner' | null) => {
+                          const ni = {
+                            ...itinerary,
+                            [currentDay]: {
+                              ...currentData,
+                              spots: [
+                                ...currentData.spots,
+                                {
+                                  id: Date.now().toString(),
+                                  name: pendingPlace.name,
+                                  address: pendingPlace.formatted_address,
+                                  lat: infoWindowPos.lat,
+                                  lng: infoWindowPos.lng,
+                                  place_id: pendingPlace.place_id,
+                                  isRestaurant: isRest || !!mealType,
+                                  mealType: mealType // ☀️ 儲存中餐或晚餐標記
+                                }
+                              ]
+                            }
+                          };
+                          setItinerary(ni);
+                          save(ni, startDate);
                           setInfoWindowPos(null);
-                        }} className="bg-blue-600 text-white text-[10px] py-2 rounded font-bold">🏨 設為住宿</button>
-                      )}
+                        };
+
+                        return (
+                          <>
+                            {/* 如果是餐廳，顯示中/晚餐選項；如果不是，顯示一般加入 */}
+                            {isRest ? (
+                              <>
+                                <button onClick={() => addSpot('lunch')} className="bg-orange-500 text-white text-[10px] py-2 rounded font-bold"> 加入中餐</button>
+                                <button onClick={() => addSpot('dinner')} className="bg-orange-900 text-white text-[10px] py-2 rounded font-bold"> 加入晚餐</button>
+                              </>
+                            ) : (
+                              <button onClick={() => addSpot(null)} className="bg-slate-800 text-white text-[10px] py-2 rounded font-bold">+ 加入行程</button>
+                            )}
+
+                            {/* 設為住宿按鈕 */}
+                            {(pendingPlace.types?.includes('lodging') || pendingPlace.types?.includes('establishment')) && (
+                              <button onClick={() => {
+                                const ni = {...itinerary, [currentDay]: {...currentData, stay: { name: pendingPlace.name, lat: infoWindowPos.lat, lng: infoWindowPos.lng }}};
+                                setItinerary(ni);
+                                save(ni, startDate);
+                                setInfoWindowPos(null);
+                              }} className="bg-blue-600 text-white text-[10px] py-2 rounded font-bold">🏨 設為住宿</button>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   ) : (
                     <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pendingPlace.name)}&query_place_id=${pendingPlace.place_id}`} target="_blank" className="block text-center bg-slate-900 text-white text-[10px] py-2 rounded mt-2 no-underline font-bold">📍 在地圖開啟</a>
@@ -367,16 +439,69 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
 }
 
 function SortableCard({ spot, index, isReadOnly, onRemove, onFocus }: any) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: spot.id, disabled: isReadOnly });
-  const style = { transform: CSS.Translate.toString(transform), transition, zIndex: isDragging ? 100 : 1, touchAction: isReadOnly ? 'auto' : 'none' } as React.CSSProperties;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ 
+    id: spot.id, 
+    disabled: isReadOnly 
+  });
+  
+  const style = { 
+    transform: CSS.Translate.toString(transform), 
+    transition, 
+    zIndex: isDragging ? 100 : 1, 
+    touchAction: isReadOnly ? 'auto' : 'none' 
+  } as React.CSSProperties;
+
+  // 🟢 根據時段決定顏色
+  const getCardStyle = () => {
+    if (spot.mealType === 'lunch') return 'border-orange-200 bg-orange-50/30';
+    if (spot.mealType === 'dinner') return 'border-orange-300 bg-orange-100/30';
+    return 'border-slate-100 bg-white';
+  };
+
+  const getHandleStyle = () => {
+    if (spot.mealType === 'lunch') return 'bg-orange-100/50 text-orange-400';
+    if (spot.mealType === 'dinner') return 'bg-orange-200/50 text-orange-500';
+    return 'bg-slate-50 text-slate-300';
+  };
+
   return (
-    <div ref={setNodeRef} style={style} className={`bg-white rounded-xl border shadow-sm transition-all overflow-hidden mb-2 ${isDragging ? 'opacity-80 scale-105 z-50 shadow-2xl border-blue-500' : 'border-slate-200 hover:border-blue-300'}`}>
+    <div ref={setNodeRef} style={style} 
+      className={`rounded-xl border-2 shadow-sm transition-all overflow-hidden mb-2 ${getCardStyle()} ${isDragging ? 'opacity-50 scale-105 shadow-xl' : ''}`}>
       <div className="flex items-stretch">
-        {!isReadOnly && <div {...listeners} {...attributes} className="w-10 bg-slate-50 flex items-center justify-center cursor-grab text-slate-300 hover:text-blue-400 border-r border-slate-100">⋮⋮</div>}
+        {/* 左側拖曳把手 */}
+        {!isReadOnly && (
+          <div {...listeners} {...attributes} className={`w-10 flex items-center justify-center cursor-grab border-r transition-colors ${getHandleStyle()}`}>
+            ⋮⋮
+          </div>
+        )}
+
+        {/* 中間文字區域 */}
         <div className="flex-1 p-4 cursor-pointer" onClick={onFocus}>
           <div className="flex justify-between items-start">
-            <div className="flex-1"><h3 className="font-bold text-slate-800 text-sm leading-tight"><span className="text-blue-500 mr-1">{index + 1}.</span> {spot.name}</h3><p className="text-[10px] text-slate-400 mt-1 line-clamp-1">{spot.address}</p></div>
-            {!isReadOnly && <button onClick={(e) => { e.stopPropagation(); onRemove(spot.id); }} className="text-slate-200 hover:text-red-400 font-bold p-1 text-xs shrink-0">✕</button>}
+            <div className="flex-1">
+              <h3 className="font-bold text-slate-800 text-sm leading-tight flex items-center gap-1">
+                {/* 🟢 顯示標籤圖示 */}
+                {spot.mealType === 'lunch' && <span className="text-orange-500 text-xs">中餐</span>}
+                {spot.mealType === 'dinner' && <span className="text-orange-700 text-xs">晚餐</span>}
+                {!spot.mealType && <span className="text-blue-500 mr-1">{index + 1}.</span>}
+                
+                <span className="ml-1">{spot.name}</span>
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">{spot.address}</p>
+            </div>
+
+            {/* ❌ 刪除按鈕 */}
+            {!isReadOnly && (
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  onRemove(spot.id); 
+                }} 
+                className="ml-2 text-slate-300 hover:text-red-500 font-bold p-1 text-xs shrink-0 transition-colors"
+              >
+                ✕
+              </button>
+            )}
           </div>
         </div>
       </div>
