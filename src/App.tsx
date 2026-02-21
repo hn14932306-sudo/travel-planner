@@ -38,7 +38,8 @@ const GRAY_STYLE = { filter: 'grayscale(1) brightness(1.1) opacity(0.5)', userSe
 const getDayDate = (startStr: string, dayIndex: number) => {
   if (!startStr) return "";
   const date = new Date(startStr);
-  date.setDate(date.getDate() + dayIndex);
+  // 使用 setDate 會自動處理月份進位
+  date.setDate(date.getDate() + dayIndex); 
   return date.toISOString().split('T')[0];
 };
 const isToday = (dateStr: string) => dateStr === new Date().toISOString().split('T')[0];
@@ -327,10 +328,23 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
                   <h4 className="font-bold text-sm mb-1">{pendingPlace.name}</h4>
                   {!isReadOnly ? (
                     <div className="flex flex-col gap-1 mt-2">
+                      {/* 按鈕 1：加入為景點 */}
                       <button onClick={() => {
                         const ni = {...itinerary, [currentDay]: {...currentData, spots: [...currentData.spots, { id: Date.now().toString(), name: pendingPlace.name, address: pendingPlace.formatted_address, lat: infoWindowPos.lat, lng: infoWindowPos.lng, place_id: pendingPlace.place_id }]}};
-                        setItinerary(ni); save(ni, startDate); setInfoWindowPos(null);
+                        setItinerary(ni); 
+                        save(ni, startDate); // 🟢 同步到 Firebase
+                        setInfoWindowPos(null);
                       }} className="bg-slate-800 text-white text-[10px] py-2 rounded font-bold">+ 加入行程</button>
+
+                      {/* 🟢 補回按鈕 2：設為住宿 (當 Google 分類為 lodging 時顯示) */}
+                      {pendingPlace.types?.includes('lodging') && (
+                        <button onClick={() => {
+                          const ni = {...itinerary, [currentDay]: {...currentData, stay: { name: pendingPlace.name, lat: infoWindowPos.lat, lng: infoWindowPos.lng }}};
+                          setItinerary(ni); 
+                          save(ni, startDate); // 🟢 同步到 Firebase
+                          setInfoWindowPos(null);
+                        }} className="bg-blue-600 text-white text-[10px] py-2 rounded font-bold">🏨 設為住宿</button>
+                      )}
                     </div>
                   ) : (
                     <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pendingPlace.name)}&query_place_id=${pendingPlace.place_id}`} target="_blank" className="block text-center bg-slate-900 text-white text-[10px] py-2 rounded mt-2 no-underline font-bold">📍 在地圖開啟</a>
