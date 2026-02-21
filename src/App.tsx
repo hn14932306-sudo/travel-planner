@@ -3,17 +3,15 @@ import { APIProvider, Map, useMap, useMapsLibrary, AdvancedMarker, InfoWindow } 
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-// 🟢 修正：確保 useParams 有被導入
 import { HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
-
-// Import the functions you need from the SDKs you need
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// ----------------------------------------------------
+// ⚙️ 初始化與配置
+// ----------------------------------------------------
+declare const google: any;
+
 const firebaseConfig = {
   apiKey: "AIzaSyDK1EdF0GOJpjFup-LpdVqX6iRKalyWHcw",
   authDomain: "travel-planner-bbecd.firebaseapp.com",
@@ -24,15 +22,9 @@ const firebaseConfig = {
   measurementId: "G-WH28P4Z1LL"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-//const analytics = getAnalytics(app);
-// 2. 初始化 Firestore 並命名為 db (非常重要！)
 const db = getFirestore(app);
-
-// 這裡填入你之前申請的金鑰
 const GOOGLE_MAPS_API_KEY = 'AIzaSyCQpryac7IVXcPuqCaR08lO9W9W4oaAoZw';
-
 
 // --- 資料結構 ---
 interface Spot { id: string; name: string; address: string; lat: number; lng: number; place_id?: string; }
@@ -52,7 +44,7 @@ const getDayDate = (startStr: string, dayIndex: number) => {
 const isToday = (dateStr: string) => dateStr === new Date().toISOString().split('T')[0];
 
 // ----------------------------------------------------
-// 🧩 修正：補回 PlaceInput 元件
+// 🧩 元件：自動完成輸入框
 // ----------------------------------------------------
 function PlaceInput({ value, onChange, placeholder, icon, onSelect, isPlainInput = false }: any) {
   const map = useMap();
@@ -81,18 +73,25 @@ function PlaceInput({ value, onChange, placeholder, icon, onSelect, isPlainInput
 }
 
 // ----------------------------------------------------
-// 🚗 時間計算組件 (不繪圖)
+// 🚗 元件：時間計算邏輯 (Day 1: 機場 -> 住宿 -> 景點)
 // ----------------------------------------------------
 function DirectionsManager({ spots, stay, airport, isFirstDay, isLastDay, travelMode, onLegsUpdate }: any) {
   useEffect(() => {
     const points: any[] = [];
-    if (isFirstDay && airport?.lat) points.push({ lat: airport.lat, lng: airport.lng });
-    else if (stay?.lat) points.push({ lat: stay.lat, lng: stay.lng });
-
-    spots.forEach((s: any) => points.push({ lat: s.lat, lng: s.lng }));
-
-    if (isLastDay && airport?.lat) points.push({ lat: airport.lat, lng: airport.lng });
-    else if (stay?.lat && (spots.length > 0 || isFirstDay)) points.push({ lat: stay.lat, lng: stay.lng });
+    
+    if (isFirstDay) {
+      if (airport?.lat) points.push({ lat: airport.lat, lng: airport.lng });
+      if (stay?.lat) points.push({ lat: stay.lat, lng: stay.lng });
+      spots.forEach((s: any) => points.push({ lat: s.lat, lng: s.lng }));
+    } else if (isLastDay) {
+      if (stay?.lat) points.push({ lat: stay.lat, lng: stay.lng });
+      spots.forEach((s: any) => points.push({ lat: s.lat, lng: s.lng }));
+      if (airport?.lat) points.push({ lat: airport.lat, lng: airport.lng });
+    } else {
+      if (stay?.lat) points.push({ lat: stay.lat, lng: stay.lng });
+      spots.forEach((s: any) => points.push({ lat: s.lat, lng: s.lng }));
+      if (stay?.lat && spots.length > 0) points.push({ lat: stay.lat, lng: stay.lng });
+    }
 
     if (points.length < 2) {
       onLegsUpdate([]);
@@ -103,9 +102,9 @@ function DirectionsManager({ spots, stay, airport, isFirstDay, isLastDay, travel
     service.route({
       origin: points[0],
       destination: points[points.length - 1],
-      waypoints: points.slice(1, -1).map(p => ({ location: p, stopover: true })),
+      waypoints: points.slice(1, -1).map((p: any) => ({ location: p, stopover: true })),
       travelMode: google.maps.TravelMode[travelMode] || google.maps.TravelMode.DRIVING
-    }, (res, status) => {
+    }, (res: any, status: any) => {
       if (status === 'OK' && res) onLegsUpdate(res.routes[0].legs);
     });
   }, [spots, stay, airport, isFirstDay, isLastDay, travelMode, onLegsUpdate]);
@@ -114,7 +113,7 @@ function DirectionsManager({ spots, stay, airport, isFirstDay, isLastDay, travel
 }
 
 // ----------------------------------------------------
-// 🏠 旅行頁面組件
+// 🏠 旅行頁面組件 (雲端同步)
 // ----------------------------------------------------
 function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
   const { tripId } = useParams(); 
@@ -125,7 +124,7 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
   const [startDate, setStartDate] = useState("");
   const [currentDay, setCurrentDay] = useState("Day 1");
   const [travelMode, setTravelMode] = useState('DRIVING');
-  const [legs, setLegs] = useState<google.maps.DirectionsLeg[]>([]);
+  const [legs, setLegs] = useState<any[]>([]);
   const [pendingPlace, setPendingPlace] = useState<any>(null);
   const [infoWindowPos, setInfoWindowPos] = useState<any>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -188,7 +187,6 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
       <div className={`md:hidden fixed inset-0 bg-slate-900/20 z-[60] backdrop-blur-[2px] transition-opacity ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsSidebarOpen(false)} />
       
       <div className={`fixed md:relative z-[70] h-full w-[340px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-        {/* 天數選單 */}
         <div className="p-4 border-b flex gap-2 overflow-x-auto no-scrollbar">
           {days.map((d, i) => (
             <button key={d} onClick={() => { setCurrentDay(d); setIsSidebarOpen(false); }} className={`px-4 py-1.5 rounded-full text-[10px] font-black shrink-0 transition-all ${currentDay === d ? 'bg-slate-800 text-white shadow-lg' : 'bg-slate-50 text-slate-300'} ${isToday(getDayDate(startDate, i)) ? 'border-2 border-amber-400' : ''}`}>
@@ -198,7 +196,6 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
           {!isReadOnly && <button onClick={() => { const next = `Day ${days.length + 1}`; const ni = { ...itinerary, [next]: { spots: [], stay: { name: "" } } }; setItinerary(ni); save(ni, startDate); }} className="w-7 h-7 rounded-full bg-slate-50 text-slate-300 flex items-center justify-center text-xs shrink-0">+</button>}
         </div>
 
-        {/* 移動方式 */}
         <div className="px-6 py-3 border-b flex items-center justify-between bg-slate-50/50">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">移動方式</span>
           <div className="flex bg-white rounded-lg p-1 border">
@@ -233,12 +230,25 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
           </div>
 
           <div className="space-y-0">
-            {isFirstDay && !!currentData.airport?.lat ? (
-              <div onClick={() => focusOnSpot(currentData.airport)} className="bg-slate-800 p-3 rounded-xl text-center cursor-pointer text-white font-black text-[10px]">✈️ 機場出發</div>
-            ) : !!currentData.stay?.lat && (
-              <div onClick={() => focusOnSpot(currentData.stay)} className="bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200 text-center cursor-pointer text-slate-400 font-bold text-[10px]">🏨 住宿出發</div>
+            {/* Day 1: 機場出發 */}
+            {isFirstDay && !!currentData.airport?.lat && (
+              <div onClick={() => focusOnSpot(currentData.airport)} className="bg-slate-800 p-3 rounded-xl text-center cursor-pointer text-white font-black text-[10px]">✈️ 從機場出發</div>
             )}
-            {(!!currentData.stay?.lat || (isFirstDay && !!currentData.airport?.lat)) && currentData.spots.length > 0 && <LegTimeItem leg={legs[0]} mode={travelMode} />}
+
+            {/* Day 1 時間: 機場 -> 住宿 */}
+            {isFirstDay && !!currentData.airport?.lat && !!currentData.stay?.lat && <LegTimeItem leg={legs[0]} mode={travelMode} />}
+
+            {/* 住宿點標籤 */}
+            {!!currentData.stay?.lat && (
+              <div onClick={() => focusOnSpot(currentData.stay)} className={`p-3 rounded-xl border border-dashed text-center cursor-pointer font-bold text-[10px] ${isFirstDay ? 'bg-blue-600 text-white border-none shadow-md' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                {isFirstDay ? '🏨 第一站：住宿 / 寄放行李' : '🏨 從住宿出發'}
+              </div>
+            )}
+
+            {/* 住宿出發後的時間 */}
+            {(!!currentData.stay?.lat || (isFirstDay && !!currentData.airport?.lat)) && currentData.spots.length > 0 && (
+                <LegTimeItem leg={isFirstDay && !!currentData.airport?.lat ? legs[1] : legs[0]} mode={travelMode} />
+            )}
 
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => {
               if (isReadOnly) return;
@@ -249,17 +259,21 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
               }
             }}>
               <SortableContext items={currentData.spots.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                {currentData.spots.map((s, idx) => (
-                  <div key={s.id}>
-                    <SortableCard spot={s} index={idx} isReadOnly={isReadOnly} onFocus={() => focusOnSpot(s)} onRemove={(id: string) => { const ni = {...itinerary, [currentDay]: {...currentData, spots: currentData.spots.filter(x => x.id !== id)}}; setItinerary(ni); save(ni, startDate); }} />
-                    {(idx < currentData.spots.length - 1 || (isLastDay && !!currentData.airport?.lat)) && <LegTimeItem leg={legs[idx + 1]} mode={travelMode} />}
-                  </div>
-                ))}
+                {currentData.spots.map((s, idx) => {
+                  const legIndex = isFirstDay && !!currentData.airport?.lat ? idx + 2 : idx + 1;
+                  return (
+                    <div key={s.id}>
+                      <SortableCard spot={s} index={idx} isReadOnly={isReadOnly} onFocus={() => focusOnSpot(s)} onRemove={(id: string) => { const ni = {...itinerary, [currentDay]: {...currentData, spots: currentData.spots.filter(x => x.id !== id)}}; setItinerary(ni); save(ni, startDate); }} />
+                      {(idx < currentData.spots.length - 1 || (isLastDay && !!currentData.airport?.lat)) && <LegTimeItem leg={legs[legIndex]} mode={travelMode} />}
+                    </div>
+                  );
+                })}
               </SortableContext>
             </DndContext>
 
+            {/* 最後一天往機場的時間與標籤 */}
             {isLastDay && !!currentData.airport?.lat ? (
-              <div onClick={() => focusOnSpot(currentData.airport)} className="bg-slate-800 p-3 rounded-xl text-center cursor-pointer text-white font-black text-[10px]">✈️ 前往機場</div>
+              <div onClick={() => focusOnSpot(currentData.airport)} className="bg-slate-800 p-3 rounded-xl text-center cursor-pointer text-white font-black text-[10px] mt-2">✈️ 前往機場 / 回家</div>
             ) : !!currentData.stay?.lat && currentData.spots.length > 0 && (
               <><LegTimeItem leg={legs[legs.length-1]} mode={travelMode} /><div onClick={() => focusOnSpot(currentData.stay)} className="bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200 text-center cursor-pointer text-slate-400 font-bold text-[10px]">🏨 返回住宿</div></>
             )}
@@ -281,7 +295,7 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
         <Map mapId="MAIN_MAP" defaultCenter={{ lat: 25.03, lng: 121.56 }} defaultZoom={13} disableDefaultUI onClick={(e: any) => {
           if (!e.detail.placeId) return;
           const pl = new (window as any).google.maps.places.PlacesService(map);
-          pl.getDetails({ placeId: e.detail.placeId, fields: ['name', 'geometry', 'formatted_address', 'photos', 'rating', 'place_id', 'types'] }, (p, s) => {
+          pl.getDetails({ placeId: e.detail.placeId, fields: ['name', 'geometry', 'formatted_address', 'photos', 'rating', 'place_id', 'types'] }, (p: any, s: any) => {
             if (s === 'OK') { setPendingPlace(p); setInfoWindowPos(e.detail.latLng); }
           });
         }}>
@@ -366,7 +380,7 @@ function LegTimeItem({ leg, mode }: any) {
 
 function MyLocationMarker() {
   const map = useMap();
-  const [pos, setPos] = useState<google.maps.LatLngLiteral | null>(null);
+  const [pos, setPos] = useState<any>(null);
   return (
     <>
       <button onClick={() => navigator.geolocation.getCurrentPosition(p => { const c = { lat: p.coords.latitude, lng: p.coords.longitude }; setPos(c); map?.panTo(c); })} className="absolute bottom-10 right-6 z-10 bg-white h-12 w-12 rounded-full shadow-lg flex items-center justify-center border border-slate-100"><span style={GRAY_STYLE}>🎯</span></button>
