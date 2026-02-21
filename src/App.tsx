@@ -27,7 +27,8 @@ const db = getFirestore(app);
 const GOOGLE_MAPS_API_KEY = 'AIzaSyCQpryac7IVXcPuqCaR08lO9W9W4oaAoZw';
 
 // --- 資料結構 ---
-interface Spot { id: string; name: string; address: string; lat: number; lng: number; place_id?: string; }
+interface Spot { id: string; name: string; address: string; lat: number; lng: number; place_id?: string; isRestaurant?: boolean; 
+  mealType?: 'lunch' | 'dinner' | null;}
 interface DayData { 
   spots: Spot[]; 
   stay: { name: string; lat?: number; lng?: number }; 
