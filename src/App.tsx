@@ -176,7 +176,11 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
 
   if (loading || !itinerary) return <div className="h-screen flex items-center justify-center font-black animate-pulse text-slate-400">CONNECTING...</div>;
 
-  const days = Object.keys(itinerary);
+  const days = Object.keys(itinerary).sort((a, b) => {
+  const numA = parseInt(a.replace('Day ', ''));
+  const numB = parseInt(b.replace('Day ', ''));
+  return numA - numB;
+});
   const dayIndex = days.indexOf(currentDay);
   const currentData = itinerary[currentDay];
   const isFirstDay = dayIndex === 0;
