@@ -320,7 +320,7 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
 
       <div className="flex-1 relative">
         <button style={GRAY_STYLE} className="md:hidden absolute top-6 left-6 z-[55] bg-white h-12 w-12 rounded-full shadow-lg flex items-center justify-center text-xl border border-slate-50" onClick={() => setIsSidebarOpen(true)}>☰</button>
-        <Map mapId="MAIN_MAP" defaultCenter={{ lat: 25.03, lng: 121.56 }} defaultZoom={13} disableDefaultUI onClick={(e: any) => {
+        <Map mapId="MAIN_MAP" gestureHandling="greedy" defaultCenter={{ lat: 25.03, lng: 121.56 }} defaultZoom={13} disableDefaultUI onClick={(e: any) => {
           if (!e.detail.placeId) return;
           const pl = new (window as any).google.maps.places.PlacesService(map);
           pl.getDetails({ 
