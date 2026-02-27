@@ -124,9 +124,9 @@ function DirectionsManager({ spots, stay, airport, isFirstDay, isLastDay, travel
 
   return null;
 }
+
 function Home() {
   useEffect(() => {
-    // 設定首頁標題與藍色圖釘
     document.title = "我的旅遊規劃器";
     const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%233b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>`;
     
@@ -163,6 +163,7 @@ function Home() {
     </div>
   );
 }
+
 function MyLocationMarker() {
   const map = useMap();
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
@@ -182,7 +183,6 @@ function MyLocationMarker() {
         onClick={handleLocationClick} 
         className="absolute bottom-32 right-6 z-10 bg-white h-12 w-12 rounded-full shadow-md flex items-center justify-center transition-all active:scale-90 border border-slate-100"
       >
-        {/* 🟢 Google Maps 風格的定位圖示 */}
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 8C9.79 8 8 9.79 8 12C8 14.21 9.79 16 12 16C14.21 16 16 14.21 16 12C16 9.79 14.21 8 12 8ZM20.94 11C20.48 6.83 17.17 3.52 13 3.06V1H11V3.06C6.83 3.52 3.52 6.83 3.06 11H1V13H3.06C3.52 17.17 6.83 20.48 11 20.94V23H13V20.94C17.17 20.48 20.48 17.17 20.94 13H23V11H20.94ZM12 19C8.13 19 5 15.87 5 12C5 8.13 8.13 5 12 5C15.87 5 19 8.13 19 12C19 15.87 15.87 19 12 19Z" fill="#5F6368"/>
         </svg>
@@ -190,7 +190,6 @@ function MyLocationMarker() {
 
       {pos && (
         <AdvancedMarker position={pos}>
-          {/* 🔵 Google Maps 風格的藍色定位點 */}
           <div className="relative flex items-center justify-center h-6 w-6">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-40"></span>
             <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500 border-2 border-white shadow-sm"></span>
@@ -200,6 +199,7 @@ function MyLocationMarker() {
     </>
   );
 }
+
 // ----------------------------------------------------
 // 🏠 旅行頁面組件
 // ----------------------------------------------------
@@ -223,39 +223,37 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 10 } })
   );
 
-useEffect(() => {
-  // 1. 設定圖示與標題
-  document.title = tripId ? `行程規劃 - ${currentDay}` : "我的旅遊規劃器";
-  const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%233b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>`;
-  
-  let link = (document.querySelector("link[rel*='icon']") as HTMLLinkElement) || document.createElement('link');
-  link.rel = 'icon';
-  link.type = 'image/svg+xml';
-  link.href = `data:image/svg+xml,${svgString.trim()}`;
-  if (!document.querySelector("link[rel*='icon']")) document.head.appendChild(link);
+  useEffect(() => {
+    document.title = tripId ? `行程規劃 - ${currentDay}` : "我的旅遊規劃器";
+    const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%233b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>`;
+    
+    let link = (document.querySelector("link[rel*='icon']") as HTMLLinkElement) || document.createElement('link');
+    link.rel = 'icon';
+    link.type = 'image/svg+xml';
+    link.href = `data:image/svg+xml,${svgString.trim()}`;
+    if (!document.querySelector("link[rel*='icon']")) document.head.appendChild(link);
 
-  // 2. Firebase 監聽邏輯
-  if (!tripId) {
-    setLoading(false); // 👈 重要：沒 ID 也要關閉載入狀態
-    return;
-  }
-
-  const unsubscribe = onSnapshot(doc(db, "trips", tripId), (docSnap) => {
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      setItinerary(data.itinerary || { "Day 1": { spots: [], stay: { name: "" } } });
-      setStartDate(data.startDate || "");
-    } else {
-      setItinerary({ "Day 1": { spots: [], stay: { name: "" } } });
+    if (!tripId) {
+      setLoading(false);
+      return;
     }
-    setLoading(false); // 🟢 資料讀取完成，關閉 Loading
-  }, (error) => {
-    console.error("Firebase Error:", error);
-    setLoading(false); // 🟢 報錯也要關閉 Loading
-  });
 
-  return () => unsubscribe();
-}, [tripId, currentDay, navigate]);
+    const unsubscribe = onSnapshot(doc(db, "trips", tripId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setItinerary(data.itinerary || { "Day 1": { spots: [], stay: { name: "" } } });
+        setStartDate(data.startDate || "");
+      } else {
+        setItinerary({ "Day 1": { spots: [], stay: { name: "" } } });
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Firebase Error:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [tripId, currentDay, navigate]);
 
   const save = (newItinerary: any, newDate: string) => {
     if (!tripId) return;
@@ -326,6 +324,24 @@ useEffect(() => {
               </div>
             )}
             <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[9px] font-black text-blue-400 uppercase tracking-tighter">Accommodation</span>
+                {!isFirstDay && !isReadOnly && (
+                  <button 
+                    onClick={() => {
+                      const prevDay = `Day ${dayIndex}`;
+                      const prevStay = itinerary[prevDay]?.stay;
+                      if (prevStay?.name) {
+                        const ni = { ...itinerary, [currentDay]: { ...currentData, stay: { ...prevStay } } };
+                        setItinerary(ni); save(ni, startDate);
+                      }
+                    }}
+                    className="text-[9px] font-bold text-blue-500 hover:text-blue-700 transition-colors"
+                  >
+                    ＋ 延用前日住宿
+                  </button>
+                )}
+              </div>
               <PlaceInput placeholder="設定住宿..." icon="🏨" value={currentData.stay?.name || ""} 
                 onChange={(v: string) => {
                   const newStay = v.trim() === "" ? { name: "" } : { ...currentData.stay, name: v };
@@ -428,8 +444,20 @@ useEffect(() => {
           ))}
 
           {currentData.stay?.lat && currentData.stay?.name && (
-            <AdvancedMarker position={{ lat: currentData.stay.lat, lng: currentData.stay.lng }} onClick={() => focusOnSpot(currentData.stay)}>
-              <div className="bg-blue-600 text-white px-2 py-1 rounded shadow-xl text-[10px] font-black border border-white">🏨 {currentData.stay.name}</div>
+            <AdvancedMarker 
+              position={{ lat: currentData.stay.lat, lng: currentData.stay.lng }} 
+              onClick={() => focusOnSpot(currentData.stay)}
+            >
+              <div className="flex flex-col items-center">
+                <div className="bg-blue-600 text-white px-3 py-1.5 rounded-full shadow-xl flex items-center gap-2 border-2 border-white animate-fade-in">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                  </svg>
+                  <span className="text-[11px] font-black whitespace-nowrap">{currentData.stay.name}</span>
+                </div>
+                <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-blue-600 -mt-[1px] shadow-sm"></div>
+              </div>
             </AdvancedMarker>
           )}
 
@@ -478,13 +506,12 @@ useEffect(() => {
               </div>
             </InfoWindow>
           )}
-          <MyLocationMarker />
         </Map>
       </div>
 
       {!isReadOnly && (
-        <div className="fixed bottom-6 right-6 z-[100]">
-          <button onClick={() => { const url = window.location.href.replace('edit', 'view'); navigator.clipboard.writeText(url); alert('連結已複製！傳給朋友即可查看。'); }} className="bg-slate-900 text-white px-6 py-3 rounded-full font-black shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2">🔗 分享行程</button>
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 md:left-[calc(340px+50%)] md:-translate-x-1/2 z-[100] w-full max-w-[200px] px-4 text-center">
+          <button onClick={() => { const url = window.location.href.replace('edit', 'view'); navigator.clipboard.writeText(url); alert('連結已複製！傳給朋友即可查看。'); }} className="w-full bg-slate-900 text-white py-3.5 rounded-full font-black text-sm shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2">🔗 分享行程</button>
         </div>
       )}
     </div>
@@ -539,17 +566,6 @@ function LegTimeItem({ leg, mode }: any) {
     </div>
   );
 }
-/*
-function MyLocationMarker() {
-  const map = useMap();
-  const [pos, setPos] = useState<any>(null);
-  return (
-    <>
-      <button onClick={() => navigator.geolocation.getCurrentPosition(p => { const c = { lat: p.coords.latitude, lng: p.coords.longitude }; setPos(c); map?.panTo(c); })} className="absolute bottom-10 right-6 z-10 bg-white h-12 w-12 rounded-full shadow-lg flex items-center justify-center border border-slate-100 text-xl">🎯</button>
-      {pos && <AdvancedMarker position={pos}><div className="bg-blue-500 h-4 w-4 rounded-full border-2 border-white shadow-lg animate-pulse" /></AdvancedMarker>}
-    </>
-  );
-}*/
 
 export default function App() {
   return (
