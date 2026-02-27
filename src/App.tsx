@@ -299,10 +299,17 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
       <div className={`fixed md:relative z-[70] h-full w-[340px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-4 border-b flex gap-2 overflow-x-auto no-scrollbar">
           {days.map((d, i) => (
-            <button key={d} onClick={() => { setCurrentDay(d); setIsSidebarOpen(false); }} className={`px-4 py-1.5 rounded-full text-[10px] font-black shrink-0 transition-all ${currentDay === d ? 'bg-slate-800 text-white shadow-lg' : 'bg-slate-50 text-slate-300'} ${isToday(getDayDate(startDate, i)) ? 'border-2 border-amber-400' : ''}`}>
-              {d} <span className="block text-[8px] opacity-60">{getDayDate(startDate, i).slice(5)}</span>
-            </button>
-          ))}
+  <button 
+    key={d} 
+    onClick={() => { setCurrentDay(d); setIsSidebarOpen(false); }} 
+    className={`px-6 py-2.5 rounded-full text-xs font-black shrink-0 transition-all active:scale-90 ${
+      currentDay === d ? 'bg-slate-800 text-white shadow-xl' : 'bg-slate-100 text-slate-400'
+    } ${isToday(getDayDate(startDate, i)) ? 'border-2 border-amber-400' : ''}`}
+  >
+    {d}
+    <span className="block text-[9px] opacity-70 font-medium">{getDayDate(startDate, i).slice(5)}</span>
+  </button>
+))}
           {!isReadOnly && <button onClick={() => { const next = `Day ${days.length + 1}`; const ni = { ...itinerary, [next]: { spots: [], stay: { name: "" } } }; setItinerary(ni); save(ni, startDate); }} className="w-7 h-7 rounded-full bg-slate-50 text-slate-300 flex items-center justify-center text-xs shrink-0">+</button>}
         </div>
 
@@ -403,13 +410,41 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
           </div>
           
           {!isReadOnly && (
-            <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 px-4 h-11 flex items-center">
-              <PlaceInput placeholder="搜尋景點..." icon="🔍" onChange={() => {}} onSelect={(p: any) => { 
-                const ni = {...itinerary, [currentDay]: {...currentData, spots: [...currentData.spots, { id: Date.now().toString(), name: p.name, address: p.formatted_address, lat: p.geometry.location.lat(), lng: p.geometry.location.lng(), place_id: p.place_id }]}};
-                setItinerary(ni); save(ni, startDate);
-              }} />
-            </div>
-          )}
+  <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 px-4 h-11 flex items-center focus-within:border-blue-400 transition-colors">
+    <PlaceInput 
+      placeholder="搜尋景點並自動帶入位置代碼..." 
+      icon="🔍" 
+      onChange={() => {}} 
+      // 在 TripPage.tsx 的 PlaceInput 區塊
+onSelect={(p: any) => { 
+  // 檢查是否有 plus_code，如果沒有則留空
+  const plusCode = p.plus_code?.global_code || p.plus_code?.compound_code || "";
+
+  const newSpot = { 
+    id: Date.now().toString(), 
+    name: p.name, 
+    address: p.formatted_address, 
+    lat: p.geometry.location.lat(), 
+    lng: p.geometry.location.lng(), 
+    place_id: p.place_id,
+    // 🟢 確保這裡有正確賦值
+    mapCode: plusCode 
+  };
+
+  const ni = {
+    ...itinerary, 
+    [currentDay]: {
+      ...currentData, 
+      spots: [...currentData.spots, newSpot]
+    }
+  };
+
+  setItinerary(ni); 
+  save(ni, startDate);
+}}
+    />
+  </div>
+)}
         </div>
       </div>
 
@@ -509,11 +544,20 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
         </Map>
       </div>
 
-      {!isReadOnly && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 md:left-[calc(340px+50%)] md:-translate-x-1/2 z-[100] w-full max-w-[200px] px-4 text-center">
-          <button onClick={() => { const url = window.location.href.replace('edit', 'view'); navigator.clipboard.writeText(url); alert('連結已複製！傳給朋友即可查看。'); }} className="w-full bg-slate-900 text-white py-3.5 rounded-full font-black text-sm shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2">🔗 分享行程</button>
-        </div>
-      )}
+{!isReadOnly && (
+  <div className="fixed bottom-10 left-1/2 -translate-x-1/2 md:left-[calc(340px+50%)] md:-translate-x-1/2 z-[100] w-full max-w-[240px] px-4">
+    <button 
+      onClick={() => { 
+        const url = window.location.href.replace('edit', 'view'); 
+        navigator.clipboard.writeText(url); 
+        alert('連結已複製！'); 
+      }} 
+      className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 border-t border-slate-700"
+    >
+      <span className="text-lg">🔗</span> 分享行程
+    </button>
+  </div>
+)}
     </div>
   );
 }
