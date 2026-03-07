@@ -36,11 +36,12 @@ interface Spot {
   place_id?: string; 
   isRestaurant?: boolean; 
   mealType?: 'lunch' | 'dinner' | null;
+  travelMode?: 'DRIVING' | 'WALKING';
 }
 
-interface DayData { 
-  spots: Spot[]; 
-  stay: { name: string; lat?: number; lng?: number }; 
+interface DayData {
+  spots: Spot[];
+  stay: { name: string; lat?: number; lng?: number; travelMode?: 'DRIVING' | 'WALKING' };
   airport?: { name: string; lat?: number; lng?: number };
 }
 
@@ -58,16 +59,16 @@ const isToday = (dateStr: string) => dateStr === new Date().toISOString().split(
 // ----------------------------------------------------
 // 🧩 元件：自動完成輸入框
 // ----------------------------------------------------
-function PlaceInput({ value, onChange, placeholder, icon, onSelect, isPlainInput = false }: any) {
+function PlaceInput({ value, onChange, placeholder, icon, onSelect, isPlainInput = false, types }: any) {
   const map = useMap();
   const placesLib = useMapsLibrary('places');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!placesLib || !inputRef.current || isPlainInput) return;
-    const ac = new placesLib.Autocomplete(inputRef.current, { 
-      fields: ['name', 'geometry', 'formatted_address', 'place_id', 'types', 'photos'] 
-    });
+    const options: any = { fields: ['name', 'geometry', 'formatted_address', 'place_id', 'types', 'photos'] };
+    if (types) options.types = types;
+    const ac = new placesLib.Autocomplete(inputRef.current, options);
     ac.addListener('place_changed', () => {
       const place = ac.getPlace();
       if (place.name) {
@@ -89,38 +90,69 @@ function PlaceInput({ value, onChange, placeholder, icon, onSelect, isPlainInput
 // ----------------------------------------------------
 // 🚗 元件：路線時間計算
 // ----------------------------------------------------
-function DirectionsManager({ spots, stay, airport, isFirstDay, isLastDay, travelMode, onLegsUpdate }: any) {
+function DirectionsManager({ spots, stay, airport, isFirstDay, isLastDay, onLegsUpdate, onResultsUpdate }: any) {
+  const map = useMap();
+  const routesLib = useMapsLibrary('routes') as any;
+
   useEffect(() => {
+    if (!routesLib) return;
     const points: any[] = [];
     if (isFirstDay) {
-      if (airport?.lat) points.push({ lat: airport.lat, lng: airport.lng });
-      if (stay?.lat) points.push({ lat: stay.lat, lng: stay.lng });
-      spots.forEach((s: any) => points.push({ lat: s.lat, lng: s.lng }));
-    } else if (isLastDay) {
-      if (stay?.lat) points.push({ lat: stay.lat, lng: stay.lng });
-      spots.forEach((s: any) => points.push({ lat: s.lat, lng: s.lng }));
-      if (airport?.lat) points.push({ lat: airport.lat, lng: airport.lng });
+      if (airport?.lat) points.push({ ...airport });
+      if (stay?.lat) points.push({ ...stay });
+      spots.forEach((s: any) => points.push(s));
     } else {
-      if (stay?.lat) points.push({ lat: stay.lat, lng: stay.lng });
-      spots.forEach((s: any) => points.push({ lat: s.lat, lng: s.lng }));
-      if (stay?.lat && spots.length > 0) points.push({ lat: stay.lat, lng: stay.lng });
+      if (stay?.lat) points.push({ ...stay });
+      spots.forEach((s: any) => points.push(s));
+      if (isLastDay && airport?.lat) points.push({ ...airport });
+      else if (stay?.lat && spots.length > 0) points.push({ ...stay });
     }
 
     if (points.length < 2) {
       onLegsUpdate([]);
+      onResultsUpdate([]);
       return;
     }
 
-    const service = new google.maps.DirectionsService();
-    service.route({
-      origin: points[0],
-      destination: points[points.length - 1],
-      waypoints: points.slice(1, -1).map((p: any) => ({ location: p, stopover: true })),
-      travelMode: google.maps.TravelMode[travelMode] || google.maps.TravelMode.DRIVING
-    }, (res: any, status: any) => {
-      if (status === 'OK' && res) onLegsUpdate(res.routes[0].legs);
+    const service = new routesLib.DirectionsService();
+
+    const segmentPromises: Promise<any>[] = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const dest = points[i + 1];
+      const src = points[i];
+      const mode = dest.travelMode || 'DRIVING';
+      const p = service.route({
+        origin: { lat: src.lat, lng: src.lng },
+        destination: { lat: dest.lat, lng: dest.lng },
+        travelMode: mode as any
+      }).then((res: any) => ({ leg: res.routes[0].legs[0], result: res })).catch(() => null);
+      segmentPromises.push(p);
+    }
+
+    Promise.all(segmentPromises).then((all) => {
+      onLegsUpdate(all.map((x: any) => x?.leg ?? null));
+      onResultsUpdate(all.map((x: any) => x?.result ?? null));
     });
-  }, [spots, stay, airport, isFirstDay, isLastDay, travelMode, onLegsUpdate]);
+
+  }, [spots, stay, airport, isFirstDay, isLastDay, onLegsUpdate, onResultsUpdate, routesLib]);
+
+  return null;
+}
+
+function RouteOverlay({ result }: any) {
+  const map = useMap();
+  const routesLib = useMapsLibrary('routes') as any;
+
+  useEffect(() => {
+    if (!map || !routesLib || !result) return;
+    const renderer = new routesLib.DirectionsRenderer({
+      map,
+      directions: result,
+      suppressMarkers: true,
+      polylineOptions: { strokeColor: '#2563eb', strokeWeight: 5, strokeOpacity: 0.85 }
+    });
+    return () => renderer.setMap(null);
+  }, [map, routesLib, result]);
 
   return null;
 }
@@ -211,8 +243,11 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
   const [itinerary, setItinerary] = useState<Record<string, DayData> | null>(null);
   const [startDate, setStartDate] = useState("");
   const [currentDay, setCurrentDay] = useState("Day 1");
-  const [travelMode, setTravelMode] = useState('DRIVING');
   const [legs, setLegs] = useState<any[]>([]);
+  const [routeResults, setRouteResults] = useState<any[]>([]);
+  const [selectedRouteIdx, setSelectedRouteIdx] = useState<number | null>(null);
+
+  useEffect(() => { setSelectedRouteIdx(null); }, [currentDay]);
   const [pendingPlace, setPendingPlace] = useState<any>(null);
   const [infoWindowPos, setInfoWindowPos] = useState<any>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -334,7 +369,7 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
               <div className="flex justify-between items-center mb-1">
                 <span className="text-[9px] font-black text-blue-400 uppercase tracking-tighter">Accommodation</span>
                 {!isFirstDay && !isReadOnly && (
-                  <button 
+                  <button
                     onClick={() => {
                       const prevDay = `Day ${dayIndex}`;
                       const prevStay = itinerary[prevDay]?.stay;
@@ -349,17 +384,40 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
                   </button>
                 )}
               </div>
-              <PlaceInput placeholder="設定住宿..." icon="🏨" value={currentData.stay?.name || ""} 
+              <PlaceInput placeholder="設定住宿..." icon="🏨" value={currentData.stay?.name || ""}
                 onChange={(v: string) => {
                   const newStay = v.trim() === "" ? { name: "" } : { ...currentData.stay, name: v };
                   const ni = { ...itinerary, [currentDay]: { ...currentData, stay: newStay } };
                   setItinerary(ni); save(ni, startDate);
-                }} 
+                }}
                 onSelect={(p: any) => {
-                  const ni = { ...itinerary, [currentDay]: { ...currentData, stay: { name: p.name, lat: p.geometry.location.lat(), lng: p.geometry.location.lng() } } };
+                  const ni = { ...itinerary, [currentDay]: { ...currentData, stay: { ...currentData.stay, name: p.name, lat: p.geometry.location.lat(), lng: p.geometry.location.lng() } } };
                   setItinerary(ni); save(ni, startDate);
-                }} 
+                }}
               />
+              {isFirstDay && !!currentData.airport?.lat && !!currentData.stay?.lat && !isReadOnly && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex bg-slate-100 p-1 rounded-xl w-full">
+                    {(['DRIVING', 'WALKING'] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => {
+                          const ni = { ...itinerary, [currentDay]: { ...currentData, stay: { ...currentData.stay, travelMode: m } } };
+                          setItinerary(ni); save(ni, startDate);
+                        }}
+                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1 ${
+                          (currentData.stay?.travelMode || 'DRIVING') === m
+                            ? m === 'WALKING' ? 'bg-white shadow-sm text-emerald-600'
+                            : 'bg-white shadow-sm text-slate-800'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        {m === 'DRIVING' ? '🚗 開車' : '🚶 步行'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -367,7 +425,7 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
             {isFirstDay && !!currentData.airport?.lat && (
               <div onClick={() => focusOnSpot(currentData.airport)} className="bg-slate-800 p-3 rounded-xl text-center cursor-pointer text-white font-black text-[10px]">✈️ 從機場出發</div>
             )}
-            {isFirstDay && !!currentData.airport?.lat && !!currentData.stay?.lat && <LegTimeItem leg={legs[0]} mode={travelMode} />}
+            {isFirstDay && !!currentData.airport?.lat && !!currentData.stay?.lat && <LegTimeItem leg={legs[0]} index={0} selected={selectedRouteIdx === 0} onClick={() => setSelectedRouteIdx(selectedRouteIdx === 0 ? null : 0)} />}
 
             {!!currentData.stay?.lat && (
               <div onClick={() => focusOnSpot(currentData.stay)} className={`p-3 rounded-xl border border-dashed text-center cursor-pointer font-bold text-[10px] ${isFirstDay ? 'bg-blue-600 text-white border-none shadow-md' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
@@ -388,9 +446,24 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
                   const legIndex = isFirstDay && !!currentData.airport?.lat ? idx + 1 : idx;
                   return (
                     <div key={s.id}>
-                      <LegTimeItem leg={legs[legIndex]} mode={travelMode} />
-                      <SortableCard spot={s} index={idx} isReadOnly={isReadOnly} onFocus={() => focusOnSpot(s)} onRemove={(id: string) => { const ni = {...itinerary, [currentDay]: {...currentData, spots: currentData.spots.filter(x => x.id !== id)}}; setItinerary(ni); save(ni, startDate); }} />
-                    </div>
+                      <LegTimeItem leg={legs[legIndex]} index={legIndex} selected={selectedRouteIdx === legIndex} onClick={() => setSelectedRouteIdx(selectedRouteIdx === legIndex ? null : legIndex)} />
+                      <SortableCard
+  spot={s}
+  index={idx}
+  isReadOnly={isReadOnly}
+  onFocus={() => focusOnSpot(s)}
+  onUpdateSpot={(id: string, updates: any) => {
+    const newSpots = currentData.spots.map(x => x.id === id ? { ...x, ...updates } : x);
+    const ni = { ...itinerary, [currentDay]: { ...currentData, spots: newSpots } };
+    setItinerary(ni);
+    save(ni, startDate);
+  }}
+  onRemove={(id: string) => { 
+    const ni = {...itinerary, [currentDay]: {...currentData, spots: currentData.spots.filter(x => x.id !== id)}}; 
+    setItinerary(ni); 
+    save(ni, startDate); 
+  }} 
+/>                    </div>
                   );
                 })}
               </SortableContext>
@@ -398,12 +471,12 @@ function TripPage({ isReadOnly }: { isReadOnly: boolean }) {
 
             {isLastDay && !!currentData.airport?.lat ? (
               <>
-                <LegTimeItem leg={legs[legs.length - 1]} mode={travelMode} />
+                <LegTimeItem leg={legs[legs.length - 1]} index={legs.length - 1} selected={selectedRouteIdx === legs.length - 1} onClick={() => setSelectedRouteIdx(selectedRouteIdx === legs.length - 1 ? null : legs.length - 1)} />
                 <div onClick={() => focusOnSpot(currentData.airport)} className="bg-slate-800 p-3 rounded-xl text-center cursor-pointer text-white font-black text-[10px] mt-2">✈️ 前往機場 / 回家</div>
               </>
             ) : !!currentData.stay?.lat && currentData.spots.length > 0 && (
               <>
-                <LegTimeItem leg={legs[legs.length - 1]} mode={travelMode} />
+                <LegTimeItem leg={legs[legs.length - 1]} index={legs.length - 1} selected={selectedRouteIdx === legs.length - 1} onClick={() => setSelectedRouteIdx(selectedRouteIdx === legs.length - 1 ? null : legs.length - 1)} />
                 <div onClick={() => focusOnSpot(currentData.stay)} className="bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200 text-center cursor-pointer text-slate-400 font-bold text-[10px]">🏨 返回住宿</div>
               </>
             )}
@@ -450,19 +523,17 @@ onSelect={(p: any) => {
 
       <div className="flex-1 relative">
         <button className="md:hidden absolute top-6 left-6 z-[55] bg-slate-900 text-white h-12 w-12 rounded-full shadow-lg flex items-center justify-center text-xl border border-slate-700" onClick={() => setIsSidebarOpen(true)}>☰</button>
-        <div className="absolute top-6 right-6 z-[55] flex bg-white rounded-full p-1 border shadow-xl">
-            <button onClick={() => setTravelMode('DRIVING')} className={`px-4 py-2 rounded-full text-xs font-bold ${travelMode === 'DRIVING' ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>🚗 開車</button>
-            <button onClick={() => setTravelMode('WALKING')} className={`px-4 py-2 rounded-full text-xs font-bold ${travelMode === 'WALKING' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>🚶 步行</button>
-        </div>
-
-        <Map mapId="MAIN_MAP" gestureHandling="greedy" defaultCenter={{ lat: 26.212, lng: 127.681 }} defaultZoom={13} disableDefaultUI onClick={(e: any) => {
+<Map mapId="MAIN_MAP" gestureHandling="greedy" defaultCenter={{ lat: 26.212, lng: 127.681 }} defaultZoom={13} disableDefaultUI onClick={(e: any) => {
+          e.stop();
+          setSelectedRouteIdx(null);
           if (!e.detail.placeId) return;
           const pl = new (window as any).google.maps.places.PlacesService(map);
           pl.getDetails({ placeId: e.detail.placeId, fields: ['name', 'geometry', 'formatted_address', 'photos', 'types', 'place_id'] }, (p: any, s: any) => {
             if (s === 'OK') { setPendingPlace(p); setInfoWindowPos(e.detail.latLng); }
           });
         }}>
-          <DirectionsManager spots={currentData.spots} stay={currentData.stay} airport={currentData.airport} isFirstDay={isFirstDay} isLastDay={isLastDay} travelMode={travelMode} onLegsUpdate={setLegs} />
+          <DirectionsManager spots={currentData.spots} stay={currentData.stay} airport={currentData.airport} isFirstDay={isFirstDay} isLastDay={isLastDay} onLegsUpdate={setLegs} onResultsUpdate={setRouteResults} />
+          {selectedRouteIdx !== null && <RouteOverlay result={routeResults[selectedRouteIdx]} />}
           <MyLocationMarker />
           {currentData.spots.map((s, idx) => (
             s.lat && s.name && (
@@ -530,6 +601,12 @@ onSelect={(p: any) => {
                               const ni = { ...itinerary, [currentDay]: { ...currentData, stay: { name: pendingPlace.name, lat: infoWindowPos.lat, lng: infoWindowPos.lng } } };
                               setItinerary(ni); save(ni, startDate); setInfoWindowPos(null);
                             }} className="bg-blue-600 text-white text-[10px] py-2 rounded font-bold">🏨 設為住宿</button>
+                            {(isFirstDay || isLastDay) && (
+                              <button onClick={() => {
+                                const ni = { ...itinerary, [currentDay]: { ...currentData, airport: { name: pendingPlace.name, lat: infoWindowPos.lat, lng: infoWindowPos.lng } } };
+                                setItinerary(ni); save(ni, startDate); setInfoWindowPos(null);
+                              }} className="bg-amber-500 text-white text-[10px] py-2 rounded font-bold">✈️ 設為機場</button>
+                            )}
                           </>
                         );
                       })()}
@@ -562,7 +639,7 @@ onSelect={(p: any) => {
   );
 }
 
-function SortableCard({ spot, index, isReadOnly, onRemove, onFocus }: any) {
+function SortableCard({ spot, index, isReadOnly, onRemove, onFocus, onUpdateSpot }: any) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: spot.id, disabled: isReadOnly });
   const style = { transform: CSS.Translate.toString(transform), transition, zIndex: isDragging ? 100 : 1, touchAction: isReadOnly ? 'auto' : 'none' } as React.CSSProperties;
 
@@ -573,10 +650,10 @@ function SortableCard({ spot, index, isReadOnly, onRemove, onFocus }: any) {
   };
 
   return (
-    <div ref={setNodeRef} style={style} className={`rounded-xl border-2 shadow-sm mb-2 overflow-hidden ${getStyle()} ${isDragging ? 'opacity-50 scale-105 shadow-xl' : ''}`}>
+    <div ref={setNodeRef} style={style} className={`rounded-xl border-2 shadow-sm mb-3 overflow-hidden ${getStyle()} ${isDragging ? 'opacity-50 scale-105 shadow-xl' : ''}`}>
       <div className="flex items-stretch">
         {!isReadOnly && (
-          <div {...listeners} {...attributes} className="w-10 flex items-center justify-center cursor-grab border-r text-slate-300 hover:text-slate-500 transition-colors bg-slate-50/50">⋮⋮</div>
+          <div {...listeners} {...attributes} className="w-10 flex items-center justify-center cursor-grab border-r text-slate-300 hover:text-slate-500 transition-colors bg-slate-50/50 text-lg">⋮⋮</div>
         )}
         <div className="flex-1 p-4 cursor-pointer" onClick={onFocus}>
           <div className="flex justify-between items-start">
@@ -590,22 +667,63 @@ function SortableCard({ spot, index, isReadOnly, onRemove, onFocus }: any) {
               <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">{spot.address}</p>
             </div>
             {!isReadOnly && (
-              <button onClick={(e) => { e.stopPropagation(); onRemove(spot.id); }} className="ml-2 text-slate-300 hover:text-red-500 p-1 transition-colors">✕</button>
+              <button onClick={(e) => { e.stopPropagation(); onRemove(spot.id); }} className="ml-2 text-slate-300 hover:text-red-500 p-1 transition-colors text-lg">✕</button>
             )}
           </div>
+
+          {!isReadOnly && (
+            <div className="mt-3 space-y-2">
+              {/* 🟢 交通模式切換 */}
+              <div className="flex bg-slate-100 p-1 rounded-xl w-full">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUpdateSpot(spot.id, { travelMode: 'DRIVING' }); }}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1 ${!spot.travelMode || spot.travelMode === 'DRIVING' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400'}`}
+                >
+                  🚗 開車
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUpdateSpot(spot.id, { travelMode: 'WALKING' }); }}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1 ${spot.travelMode === 'WALKING' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-400'}`}
+                >
+                  🚶 步行
+                </button>
+              </div>
+
+              {/* 🟢 餐飲類型切換 (新增部分) */}
+              <div className="flex gap-1">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onUpdateSpot(spot.id, { mealType: spot.mealType === 'lunch' ? null : 'lunch' }); }}
+                  className={`flex-1 py-1 rounded-lg text-[9px] font-bold border transition-all ${spot.mealType === 'lunch' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-400 border-slate-100'}`}
+                >
+                  ☀️ 中餐
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onUpdateSpot(spot.id, { mealType: spot.mealType === 'dinner' ? null : 'dinner' }); }}
+                  className={`flex-1 py-1 rounded-lg text-[9px] font-bold border transition-all ${spot.mealType === 'dinner' ? 'bg-orange-900 text-white border-orange-900' : 'bg-white text-slate-400 border-slate-100'}`}
+                >
+                  🌙 晚餐
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function LegTimeItem({ leg, mode }: any) {
+function LegTimeItem({ leg, selected, onClick }: any) {
   if (!leg) return <div className="h-4" />;
+
+  const mode = leg.steps?.[0]?.travel_mode;
+  const icon = mode === 'WALKING' ? '🚶' : '🚗';
+
   return (
-    <div className="flex justify-center -my-1 relative h-10 z-0">
+    <div className="flex justify-center -my-1 relative h-10 z-0" onClick={onClick}>
       <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-slate-100 -translate-x-1/2" />
-      <div className="relative bg-white border border-slate-50 text-slate-400 text-[9px] font-bold px-2 py-0.5 rounded-full my-auto flex items-center gap-1 shadow-sm">
-        <span>{mode === 'WALKING' ? '🚶' : '🚗'}</span><span>{leg.duration?.text}</span>
+      <div className={`relative border text-[9px] font-bold px-2 py-0.5 rounded-full my-auto flex items-center gap-1 shadow-sm cursor-pointer transition-all ${selected ? 'bg-blue-600 border-blue-600 text-white scale-110' : 'bg-white border-slate-50 text-slate-400 hover:border-blue-300 hover:text-blue-500'}`}>
+        <span>{icon}</span>
+        <span>{leg.duration?.text}</span>
       </div>
     </div>
   );
