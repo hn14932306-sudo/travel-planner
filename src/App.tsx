@@ -91,7 +91,6 @@ function PlaceInput({ value, onChange, placeholder, icon, onSelect, isPlainInput
 // 🚗 元件：路線時間計算
 // ----------------------------------------------------
 function DirectionsManager({ spots, stay, airport, isFirstDay, isLastDay, onLegsUpdate, onResultsUpdate }: any) {
-  const map = useMap();
   const routesLib = useMapsLibrary('routes') as any;
 
   useEffect(() => {
